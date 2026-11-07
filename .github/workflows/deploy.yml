@@ -1,0 +1,47 @@
+name: Deploy SQL Server and Run Scripts
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_PID: Developer
+          MSSQL_SA_PASSWORD: ${{ secrets.MSSQL_SA_PASSWORD }}
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P '${{ secrets.MSSQL_SA_PASSWORD }}' -C -Q 'SELECT 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+      - name: Instalar sqlcmd
+        run: |
+          curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg
+          curl -fsSL https://packages.microsoft.com/config/ubuntu/22.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y mssql-tools18
+      - name: Ejecutar scripts SQL
+        env:
+          SA_PASSWORD: ${{ secrets.MSSQL_SA_PASSWORD }}
+        run: |
+          export PATH="$PATH:/opt/mssql-tools18/bin"
+          sqlcmd -S 127.0.0.1 -U sa -P "$SA_PASSWORD" -C -i sql/create_database.sql
+          sqlcmd -S 127.0.0.1 -U sa -P "$SA_PASSWORD" -C -i sql/create_tables.sql
+          sqlcmd -S 127.0.0.1 -U sa -P "$SA_PASSWORD" -C -i sql/create_procedure.sql
+          sqlcmd -S 127.0.0.1 -U sa -P "$SA_PASSWORD" -C -i sql/create_trigger.sql
+          sqlcmd -S 127.0.0.1 -U sa -P "$SA_PASSWORD" -C -i sql/test_data.sql
+      - name: Mostrar resultados finales
+        env:
+          SA_PASSWORD: ${{ secrets.MSSQL_SA_PASSWORD }}
+        run: |
+          export PATH="$PATH:/opt/mssql-tools18/bin"
+          sqlcmd -S 127.0.0.1 -U sa -P "$SA_PASSWORD" -C -Q "USE EmpresaDB; SELECT * FROM Ventas; SELECT * FROM AuditoriaVentas; SELECT * FROM Inventario;"
